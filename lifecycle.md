@@ -36,6 +36,10 @@ POCs may occur here.
 Candidate product behavior, architecture, or governance is being made explicit
 before required authority gates are crossed.
 
+Designing resolves candidate target decisions that require upstream authority or
+acceptance. It establishes what should be accepted; it does not yet turn that
+target into executable implementation detail.
+
 ### Awaiting Approval
 
 The work is blocked on an external authority decision. AI may assess and
@@ -46,6 +50,11 @@ recommend but may not execute a human-only gate.
 Accepted scope is being made executable. Typical activities include Technical
 Design, ADR work, Task Planning when triggered, migration/compatibility planning,
 validation planning, and Readiness Review.
+
+Preparing turns an accepted target into executable technical, task, migration,
+and validation detail without redefining that target. If preparation discovers a
+target-level decision that is not already authorized, Work returns to Designing
+or to the owner/activity authorized to resolve it.
 
 ### Ready
 
@@ -108,8 +117,15 @@ first two permit transition to `Ready`.
 
 ### Quality Gate
 
-All applicable review perspectives must be sufficiently accepted before work
-can complete validation/closure.
+Under the normal route, all applicable review perspectives MUST be sufficiently
+accepted before transition from `Reviewing` to `Validating`. Validation evidence
+MAY execute earlier or overlap operationally; entering `Validating` records that
+review acceptance is sufficiently established, not that testing begins for the
+first time.
+
+A project-configured Workflow Route MAY permit controlled review/validation
+overlap, but it MUST preserve the semantic distinction between review and
+validation and MUST require applicable review acceptance before `Done`.
 
 ### Evidence Gate
 
