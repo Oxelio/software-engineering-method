@@ -42,6 +42,12 @@ agents.project_context
 The method defines the semantic slot; the project decides the file, directory,
 service, or other canonical owner that fulfills it.
 
+`SHOULD` governs whether an optional semantic slot is generally applicable and
+made discoverable by the adopting project. Once the current Method Activity,
+selected Workflow Route, Context requirement, or project policy requires a
+semantic owner, that binding MUST resolve. Otherwise the required context is
+missing/blocked and the orchestrator MUST NOT invent a substitute owner or rule.
+
 ## 3. Reference rather than duplicate
 
 Prefer:
