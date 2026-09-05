@@ -120,6 +120,13 @@ Describes behavior or design accepted for an identified work scope but not
 necessarily effective yet. Approved Functional Specifications and Technical
 Designs are typical target owners.
 
+`Accepted` means accepted by the authority applicable to the subject. A target
+requires human approval only when the method or adopting project explicitly
+assigns the applicable Authority Gate to a human authority. Otherwise, target
+acceptance may be established by the Role or authority contract that owns that
+subject. The label `Approved Target` MUST NOT be interpreted as a universal
+human-approval requirement.
+
 ### Historical Rationale
 
 Describes why a durable structural decision was made. ADRs own this rationale;
