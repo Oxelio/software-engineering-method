@@ -1,0 +1,4 @@
+interface:
+  display_name: Software Engineering Method
+  short_description: Software engineering method
+  default_prompt: I have a new software change. Classify it and determine the correct workflow route.

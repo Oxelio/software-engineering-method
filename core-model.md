@@ -193,5 +193,5 @@ An adopting project may:
 
 A project-specific architecture rule is an extension/configuration, not a
 method invariant. For example, bounded contexts and ports/adapters may be
-mandatory for Architecture Web without becoming mandatory for every project
+mandatory for one adopting project without becoming mandatory for every project
 using this method.

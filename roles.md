@@ -183,6 +183,6 @@ AI may assess, recommend, draft, and identify blockers; it may not claim to have
 ## 11. Project extensions
 
 Projects MAY add role-specific constraints and concrete operational permissions.
-For example, Architecture Web adds DDD/Clean/Hexagonal review criteria to the
-Software Architect and project coding conventions to the Developer. Such
+For example, an adopting project may add its architecture review criteria to
+the Software Architect and project coding conventions to the Developer. Such
 project rules remain project-owned rather than becoming generic method rules.

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "gpt-bd3ae7f9a1d82a10ba416483ff014a2e",
+  "version": "0.12.0",
+  "description": "Software engineering governance assistant. Classifies work, selects proportional workflow depth, enforces ownership and human gates, builds focused context, coordinates design, implementation, review and validation without imposing a specific architecture or technology.",
+  "author": {
+    "name": "GPT Creator"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "capabilities": [
+          "skills"
+        ],
+        "category": "Developer Tools",
+        "composerIcon": "./assets/gpt-icon.png",
+        "defaultPrompt": [
+          "I have a new software change. Classify it and determine the correct workflow route.",
+          "Build the Context Manifest for this Technical Design.",
+          "Perform a Readiness Review for this work."
+        ],
+        "developerName": "GPT Creator",
+        "displayName": "Software Engineering Method",
+        "logo": "./assets/gpt-icon.png",
+        "longDescription": "Software engineering governance assistant. Classifies work, selects proportional workflow depth, enforces ownership and human gates, builds focused context, coordinates design, implementation, review and validation without imposing a specific architecture or technology.",
+        "shortDescription": "Software engineering method"
+      }
+    }
+  },
+  "repository": "https://github.com/Oxelio/software-engineering-method"
+}
