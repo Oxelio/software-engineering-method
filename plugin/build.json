@@ -16,9 +16,5 @@
   ],
   "non_method_root_files": [
     "CONTRIBUTING.md"
-  ],
-  "retained_legacy_files": [
-    ".app.json",
-    "skills/instructions/lookup/knowledge-index.json"
   ]
 }
