@@ -16,6 +16,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_ROOT = "skills/instructions/references/"
 SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+# Explicitly authorized removal paths for the first migration from the legacy GPT.
+APPROVED_DELETE_PATHS = frozenset({
+    ".app.json",
+    "skills/instructions/lookup/knowledge-index.json",
+})
 
 
 def require(condition, message):
@@ -58,16 +63,6 @@ def check_links(files):
                     parts.append(part)
             resolved = "/".join(parts)
             require(resolved in files, f"Broken link: {name}: {target}")
-
-
-def retained_legacy_files(config):
-    names = config.get("retained_legacy_files", [])
-    require(isinstance(names, list) and len(names) == len(set(names)),
-            "Legacy retained-file allowlist must be unique")
-    for name in names:
-        require(isinstance(name, str) and str(safe_path(name)) == name,
-                f"Invalid retained legacy path: {name}")
-    return set(names)
 
 
 def source_files(root=ROOT):
@@ -143,9 +138,6 @@ def source_files(root=ROOT):
     require(root_markdown == set(methods) | set(excluded),
             f"Unclassified root Markdown: {sorted(root_markdown - set(methods) - set(excluded))}; "
             f"missing root Markdown: {sorted((set(methods) | set(excluded)) - root_markdown)}")
-    require(not retained_legacy_files(config) & set(files),
-            "Retained legacy file cannot be part of generated package")
-
     # Generate the compatibility overlay from the same manifest; never edit two
     # independent copies of version, identity, presentation, or app declarations.
     compatibility = {key: manifest[key] for key in
@@ -190,7 +182,6 @@ def build(root=ROOT, output=None, allow_dirty=False, release=False):
         "repository": config["repository"], "source_commit": commit,
         "dirty": dirty, "version": manifest["version"],
         "build_kind": "release" if release else "review", "release_tag": release_tag,
-        "retained_legacy_files": sorted(retained_legacy_files(config)),
         "method_sources": {REFERENCE_ROOT + name: name for name in config["method_files"]},
         "files": {name: sha256(data) for name, data in sorted(files.items())},
     }
@@ -253,12 +244,9 @@ def verify(expected_path, published_path):
     expected, published = archive_files(expected_path), archive_files(published_path)
     checked_provenance(expected)
     missing, extra = set(expected) - set(published), set(published) - set(expected)
-    allowed = set(json.loads(expected["provenance.json"])["retained_legacy_files"])
-    unexpected = extra - allowed
-    require(not missing and not unexpected,
-            f"Inventory mismatch: missing={sorted(missing)}, unexpected={sorted(unexpected)}")
-    # Historical overlay files cannot be deleted by the account update API.
-    # They are inert only when the new manifests do not reference them.
+    require(not missing and not extra,
+            f"Inventory mismatch: missing={sorted(missing)}, extra={sorted(extra)}")
+    # A published plugin must no longer declare obsolete app bindings.
     require("apps" not in json.loads(published["plugin.json"]).get("extensions", {}).get("com.openai", {}),
             "Published plugin still declares an app binding")
     require("apps" not in json.loads(published[".codex-plugin/plugin.json"]),
@@ -289,12 +277,6 @@ def checked_provenance(files):
     require(provenance.get("release_tag") == (
         f"v{manifest['version']}" if kind == "release" else None
     ), "Release tag does not match build kind and version")
-    retained = provenance.get("retained_legacy_files")
-    require(isinstance(retained, list) and len(retained) == len(set(retained)),
-            "Invalid retained legacy provenance")
-    for name in retained:
-        require(isinstance(name, str) and str(safe_path(name)) == name,
-                "Invalid retained legacy path in provenance")
     return provenance
 
 
@@ -317,9 +299,9 @@ def publication_plan(archive_path, snapshot):
     require(len(previous) == len(set(previous)), "Duplicate current inventory entries")
     for name in previous:
         safe_path(name)
-    retained = sorted(set(previous) - set(files))
-    unexpected = set(retained) - set(provenance["retained_legacy_files"])
-    require(not unexpected, f"Unexpected existing plugin files: {sorted(unexpected)}")
+    delete_paths = sorted(set(previous) - set(files))
+    unapproved = set(delete_paths) - APPROVED_DELETE_PATHS
+    require(not unapproved, f"Unapproved deletion paths: {sorted(unapproved)}")
     return {
         "plugin_id": provenance["plugin_id"],
         "expected_release_id": plugin["current_release_id"],
@@ -327,8 +309,7 @@ def publication_plan(archive_path, snapshot):
         "archive_sha256": sha256(Path(archive_path).read_bytes()),
         "source_commit": provenance["source_commit"],
         "version": provenance["version"],
-        "retained_legacy_files": retained,
-        "note": "Plugin Creator overlays files; listed legacy files remain unreferenced, not deleted",
+        "delete_paths": delete_paths,
     }
 
 
