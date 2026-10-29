@@ -47,15 +47,17 @@ The migration:
 - stops using the obsolete GPT upload-name lookup index;
 - preserves the existing icon, identity, and starter prompt values.
 
-The Plugin Creator update API is **overlay-only**: it cannot delete files.
-The historical `.app.json` and `skills/instructions/lookup/knowledge-index.json`
-therefore remain physically present after the initial account update. They are
-inert: the new portable and compatibility manifests do not bind `.app.json`,
-and the new skill does not load the GPT lookup index. They are explicitly
-allowlisted as retained legacy files in `plugin/build.json`. No other unexpected
-file may remain in the account plugin. Do not claim these files were deleted;
-if the host later supports full replacement, remove them in a separate verified
-migration.
+The Plugin Creator update API overlays uploaded files and supports explicit
+`delete_paths` for files omitted from the archive. This migration **must
+delete** `.app.json` and `skills/instructions/lookup/knowledge-index.json`.
+The replacement manifests remove the GitHub app binding, and the new skill
+does not load the old GPT index.
+
+The publication plan compares the fresh, complete account inventory with the
+release archive and rejects any deletion not explicitly approved in
+`scripts/package_plugin.py`. The two known historical files are the only
+approved initial removals. Do not upload and delete the same path. Subsequent
+releases should have an empty deletion list unless another removal is reviewed.
 
 The old `software-engineering-method-gpt` repository stays archived. Its
 OpenAPI action contract belongs to the historical Custom GPT and is not a new
@@ -104,12 +106,14 @@ Use the existing Plugin Creator integration in an authorized chat:
    python scripts/package_plugin.py plan dist/software-engineering-method-0.12.0.zip dist/current-plugin.json
    ```
 
-4. Review its identity, source commit, checksum, version, `expected_release_id`,
-   and `retained_legacy_files`. Only the two known inert historical paths are
-   allowed. The plan fails on other unexpected old files.
-5. Call `update_plugin` with the reviewed archive, exact plugin ID and fresh
-   `expected_release_id`. The API **does not accept a deletion list**; the
-   two historical files will remain on the account. Keep sharing unchanged.
+4. Review its identity, source commit, checksum, version,
+   `expected_release_id`, and explicit `delete_paths`. The initial migration
+   must list exactly `.app.json` and
+   `skills/instructions/lookup/knowledge-index.json`. If other files appear,
+   reconcile them before publication rather than silently deleting them.
+5. Call `update_plugin` with the reviewed archive, exact plugin ID, fresh
+   `expected_release_id`, and the exact `delete_paths` returned by the plan.
+   Ensure deleted paths are absent from the uploaded archive. Keep sharing unchanged.
    If the release guard conflicts, fetch and reconcile current source; do not
    replace the guard on an outdated candidate and retry blindly.
 
@@ -121,9 +125,9 @@ does not store account credentials or automate Plugin Creator updates.
 After a successful update:
 
 1. Read metadata and the complete file inventory again. Confirm the returned
-   release ID, intended version, skill, and unchanged identity and audience.
-   The two allowlisted historical files may remain physically present; verify
-   they are not actively referenced by either manifest or the new skill.
+   release ID, intended version, skill, unchanged identity and audience, and
+   **absence of both deleted historical files**. Confirm neither the portable
+   nor the compatibility manifest declares the removed app binding.
 2. Retrieve that published release using `get_owned_plugin_archive` and save
    it outside source inputs, for example `dist/published.tar.gz`.
 3. Compare the actual publication against the exact reviewed build:
@@ -132,11 +136,11 @@ After a successful update:
    python scripts/package_plugin.py verify dist/software-engineering-method-0.12.0.zip dist/published.tar.gz
    ```
 
-   Verification rejects missing, changed, or unexpected additional files,
-   allowing only the explicitly declared, inert historical overlay paths.
-   Method text, assets, and provenance must be byte-identical; manifest JSON
-   may be serialized differently only when its parsed content remains identical.
-   Reconfirm that neither manifest declares an app binding.
+   Verification rejects all missing, changed, or additional files, including
+   formerly retained historical files. Method text, assets, and provenance
+   must be byte-identical; manifest JSON may be serialized differently only
+   when its parsed content remains identical. Reconfirm that neither manifest
+   declares an app binding.
 4. Record plugin ID, published release ID, version, source commit, tag, archive
    checksum, verification result, and any host smoke-test limits in the GitHub
    release notes or a reviewed release receipt. That receipt refers back to the
