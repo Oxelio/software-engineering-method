@@ -74,8 +74,11 @@ MCP server or plugin dependency.
    with a clean worktree and create tag `v<plugin-version>` under the repository's
    normal authorization. CI checks the tag/version correspondence and runs
    `build --release` only for tag events. This requires that the local version
-   tag points to HEAD and produces an explicitly marked publishable build.
-   CI builds the package without publishing it.
+   tag points to HEAD **and the commit is reachable from the fetched
+   `origin/main`**. The tagged workflow fetches the full history and checks
+   this ancestry before packaging; `build --release` independently enforces
+   the same condition. A tag on an unmerged branch cannot produce a publishable
+   archive. CI builds the package without publishing it.
 4. Keep the exact ZIP and JSON checksum receipt, preferably as assets of a
    GitHub release associated with that tag. Verify that the receipt's
    `source_commit` is the intended reviewed revision and `dirty` is false.
@@ -118,8 +121,9 @@ does not store account credentials or automate Plugin Creator updates.
 After a successful update:
 
 1. Read metadata and the complete file inventory again. Confirm the returned
-   release ID, intended version, skill, absent obsolete files, and unchanged
-   identity and audience.
+   release ID, intended version, skill, and unchanged identity and audience.
+   The two allowlisted historical files may remain physically present; verify
+   they are not actively referenced by either manifest or the new skill.
 2. Retrieve that published release using `get_owned_plugin_archive` and save
    it outside source inputs, for example `dist/published.tar.gz`.
 3. Compare the actual publication against the exact reviewed build:
