@@ -56,6 +56,7 @@ class PackageTests(unittest.TestCase):
         files = package.archive_files(first)
         provenance = json.loads(files["provenance.json"])
         self.assertFalse(provenance["dirty"])
+        self.assertNotIn("retained_legacy_files", provenance)
         self.assertEqual("review", provenance["build_kind"])
         self.assertIsNone(provenance["release_tag"])
         self.assertTrue(first.name.endswith("-review.zip"))
@@ -123,14 +124,17 @@ class PackageTests(unittest.TestCase):
         archive, _ = package.build(self.root, release=True)
         plan = package.publication_plan(archive, self.snapshot())
         self.assertEqual([".app.json", "skills/instructions/lookup/knowledge-index.json"],
-                         plan["retained_legacy_files"])
+                         plan["delete_paths"])
         self.assertEqual("previous-release", plan["expected_release_id"])
+        fresh_snapshot = self.snapshot()
+        fresh_snapshot["files"] = [{"path": "plugin.json"}]
+        self.assertEqual([], package.publication_plan(archive, fresh_snapshot)["delete_paths"])
         for update, message in [
             (lambda value: value.update(next_offset=50), "complete"),
             (lambda value: value["plugin"].update(plugin_id="other-plugin"), "Wrong target"),
             (lambda value: value["plugin"].update(current_release_id=None), "release guard"),
             (lambda value: value["plugin"].update(version="0.12.0"), "Bump release"),
-            (lambda value: value["files"].append({"path": "unknown-leftover.txt"}), "Unexpected existing"),
+            (lambda value: value["files"].append({"path": "unknown-leftover.txt"}), "Unapproved deletion"),
         ]:
             with self.subTest(message=message):
                 snapshot = self.snapshot()
@@ -180,23 +184,23 @@ class PackageTests(unittest.TestCase):
                 archive.addfile(member, io.BytesIO(data))
         package.verify(expected, published)
 
-    def test_verification_accepts_only_inert_legacy_overlay_files(self):
+    def test_verification_requires_actual_legacy_deletion_and_exact_inventory(self):
         expected, _ = package.build(self.root)
         original = package.archive_files(expected)
-        retained = {**original,
-                    ".app.json": b'{"apps":{"github":{"id":"old"}}}',
-                    "skills/instructions/lookup/knowledge-index.json": b'{"files":[]}'}
         published = self.root / "dist/published.zip"
         with zipfile.ZipFile(published, "w") as archive:
-            for path, data in retained.items():
-                archive.writestr(path, data)
+            for path, content in original.items():
+                archive.writestr(path, content)
         package.verify(expected, published)
+
         for name, data in [
+            (".app.json", b'{"apps":{"github":{"id":"old"}}}'),
+            ("skills/instructions/lookup/knowledge-index.json", b'{"files":[]}'),
             ("skills/instructions/references/core-model.md", b"tampered"),
             ("unexpected-other-file.txt", b"unrecognized"),
         ]:
             with self.subTest(name=name):
-                changed = {**retained, name: data}
+                changed = {**original, name: data}
                 with zipfile.ZipFile(published, "w") as archive:
                     for path, content in changed.items():
                         archive.writestr(path, content)
