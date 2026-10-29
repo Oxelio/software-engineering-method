@@ -1,0 +1,88 @@
+name: Validate and package plugin
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # Required to verify tagged commits against origin/main.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install validation dependency
+        run: python -m pip install -r requirements-dev.txt
+      - name: Check source and links
+        run: python scripts/package_plugin.py check
+      - name: Test packaging and publication verification
+        run: python -m unittest discover -s tests -v
+      - name: Check release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python -c "import json,os; m=json.load(open('plugin/plugin.json', encoding='utf-8')); assert os.environ['RELEASE_TAG'] == 'v' + m['version'], 'Tag and plugin version differ'"
+      - name: Ensure tagged release commit is on main
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          git show-ref --verify --quiet refs/remotes/origin/main || {
+            echo "::error::origin/main must be fetched for release validation"
+            exit 1
+          }
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main || {
+            echo "::error::Release tag points to a commit not merged into main"
+            exit 1
+          }
+      - name: Build non-publishable review artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: python scripts/package_plugin.py build
+      - name: Build publishable tagged release artifact
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python scripts/package_plugin.py build --release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: software-engineering-method-${{ matrix.os }}
+          path: |
+            dist/*.zip
+            dist/*.json
+          if-no-files-found: error
+          retention-days: 30
+
+  compare-packages:
+    name: Compare Windows and Linux packages
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: software-engineering-method-*
+          path: packages
+      - name: Require identical archives across platforms
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          archives = list(Path('packages').rglob('*.zip'))
+          assert len(archives) == 2, 'Expected one archive per platform'
+          digests = {hashlib.sha256(path.read_bytes()).hexdigest() for path in archives}
+          assert len(digests) == 1, 'Windows and Linux packages differ'
+          print('Identical packages:', next(iter(digests)))
+          PY

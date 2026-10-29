@@ -65,3 +65,15 @@ implementation, and evidence.
 AI conversations, handoffs, Context Manifests, Working Decision Logs, and
 generated proposals are working context only until accepted knowledge is
 integrated into its authoritative owner.
+
+## Plugin distribution
+
+The Software Engineering Method plugin is a generated distribution of this
+repository. Its bundled references preserve the canonical method text at the
+source commit recorded in the package's `provenance.json`; they are not a second
+editable owner. Plugin releases identify both a package version and a Git commit.
+
+Project integrations, concrete tools, and validation commands remain project-owned.
+See the repository's
+[contributor guide](https://github.com/Oxelio/software-engineering-method/blob/main/CONTRIBUTING.md)
+for source layout, package checks, and the publication procedure.

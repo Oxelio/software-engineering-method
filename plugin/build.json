@@ -1,0 +1,20 @@
+{
+  "plugin_id": "plugin_09c6c2b682e8819196aed461ea8279d8",
+  "repository": "https://github.com/Oxelio/software-engineering-method",
+  "method_files": [
+    "README.md",
+    "artifact-ownership.md",
+    "context-manifest.md",
+    "core-model.md",
+    "lifecycle.md",
+    "project-method-profile.md",
+    "readiness-review.md",
+    "review-validation.md",
+    "roles.md",
+    "work-classification.md",
+    "working-decision-log.md"
+  ],
+  "non_method_root_files": [
+    "CONTRIBUTING.md"
+  ]
+}
