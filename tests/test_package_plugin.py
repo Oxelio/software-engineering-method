@@ -29,6 +29,7 @@ class PackageTests(unittest.TestCase):
         self.git("add", ".")
         self.git("-c", "user.name=Package Test", "-c", "user.email=test@example.invalid",
                  "commit", "-qm", "fixture")
+        self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
 
     def git(self, *args):
         return subprocess.check_output(["git", "-C", str(self.root), *args], text=True).strip()
@@ -148,6 +149,23 @@ class PackageTests(unittest.TestCase):
         (self.root / "README.md").write_text("temporary preview\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "dirty previews"):
             package.build(self.root, release=True, allow_dirty=True)
+
+    def test_release_rejects_missing_origin_main_tracking_ref(self):
+        self.git("tag", "v0.12.0")
+        self.git("update-ref", "-d", "refs/remotes/origin/main")
+        with self.assertRaisesRegex(ValueError, "fetched origin/main"):
+            package.build(self.root, release=True)
+
+    def test_release_rejects_tag_on_unmerged_branch(self):
+        self.git("checkout", "-qb", "feature")
+        (self.root / "README.md").write_bytes(
+            (self.root / "README.md").read_bytes() + b"\nFeature-only change\n")
+        self.git("add", "README.md")
+        self.git("-c", "user.name=Package Test", "-c", "user.email=test@example.invalid",
+                 "commit", "-qm", "unmerged work")
+        self.git("tag", "v0.12.0")
+        with self.assertRaisesRegex(ValueError, "reachable from origin/main"):
+            package.build(self.root, release=True)
 
     def test_verification_supports_wrapped_tar_and_manifest_reserialization(self):
         expected, _ = package.build(self.root)
