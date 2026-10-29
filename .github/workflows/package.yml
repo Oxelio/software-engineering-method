@@ -23,6 +23,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0  # Required to verify tagged commits against origin/main.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
@@ -37,6 +38,18 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python -c "import json,os; m=json.load(open('plugin/plugin.json', encoding='utf-8')); assert os.environ['RELEASE_TAG'] == 'v' + m['version'], 'Tag and plugin version differ'"
+      - name: Ensure tagged release commit is on main
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          git show-ref --verify --quiet refs/remotes/origin/main || {
+            echo "::error::origin/main must be fetched for release validation"
+            exit 1
+          }
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main || {
+            echo "::error::Release tag points to a commit not merged into main"
+            exit 1
+          }
       - name: Build non-publishable review artifact
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: python scripts/package_plugin.py build
