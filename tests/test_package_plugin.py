@@ -54,6 +54,11 @@ class PackageTests(unittest.TestCase):
         files = package.archive_files(first)
         provenance = json.loads(files["provenance.json"])
         self.assertFalse(provenance["dirty"])
+        self.assertEqual("review", provenance["build_kind"])
+        self.assertIsNone(provenance["release_tag"])
+        self.assertTrue(first.name.endswith("-review.zip"))
+        with self.assertRaisesRegex(ValueError, "Only tagged release"):
+            package.publication_plan(first, self.snapshot())
         self.assertEqual(self.git("rev-parse", "HEAD"), provenance["source_commit"])
         for target, source in provenance["method_sources"].items():
             self.assertEqual((self.root / source).read_bytes(), files[target])
@@ -93,6 +98,11 @@ class PackageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "30 characters"):
             package.source_files(self.root)
 
+    def test_unclassified_root_markdown_is_rejected(self):
+        (self.root / "new-normative-document.md").write_text("# New method rule\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Unclassified root Markdown"):
+            package.source_files(self.root)
+
     def test_broken_method_link_and_committed_reference_copy_are_rejected(self):
         method = self.root / "README.md"
         original = method.read_bytes()
@@ -107,21 +117,36 @@ class PackageTests(unittest.TestCase):
             package.source_files(self.root)
 
     def test_plan_requires_full_inventory_identity_release_and_new_version(self):
-        archive, _ = package.build(self.root)
+        self.git("tag", "v0.12.0")
+        archive, _ = package.build(self.root, release=True)
         plan = package.publication_plan(archive, self.snapshot())
-        self.assertEqual([".app.json", "skills/instructions/lookup/knowledge-index.json"], plan["delete_paths"])
+        self.assertEqual([".app.json", "skills/instructions/lookup/knowledge-index.json"],
+                         plan["retained_legacy_files"])
         self.assertEqual("previous-release", plan["expected_release_id"])
         for update, message in [
             (lambda value: value.update(next_offset=50), "complete"),
             (lambda value: value["plugin"].update(plugin_id="other-plugin"), "Wrong target"),
             (lambda value: value["plugin"].update(current_release_id=None), "release guard"),
             (lambda value: value["plugin"].update(version="0.12.0"), "Bump release"),
+            (lambda value: value["files"].append({"path": "unknown-leftover.txt"}), "Unexpected existing"),
         ]:
             with self.subTest(message=message):
                 snapshot = self.snapshot()
                 update(snapshot)
                 with self.assertRaisesRegex(ValueError, message):
                     package.publication_plan(archive, snapshot)
+
+    def test_release_requires_tag_pointing_to_head(self):
+        with self.assertRaisesRegex(ValueError, "local v0.12.0 tag"):
+            package.build(self.root, release=True)
+        self.git("tag", "v0.12.0")
+        archive, receipt = package.build(self.root, release=True)
+        self.assertEqual("release", receipt["build_kind"])
+        self.assertEqual("v0.12.0", receipt["release_tag"])
+        self.assertEqual("0.12.0", package.publication_plan(archive, self.snapshot())["version"])
+        (self.root / "README.md").write_text("temporary preview\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "dirty previews"):
+            package.build(self.root, release=True, allow_dirty=True)
 
     def test_verification_supports_wrapped_tar_and_manifest_reserialization(self):
         expected, _ = package.build(self.root)
@@ -136,21 +161,32 @@ class PackageTests(unittest.TestCase):
                 archive.addfile(member, io.BytesIO(data))
         package.verify(expected, published)
 
-    def test_verification_rejects_tampered_method_and_overlay_leftovers(self):
+    def test_verification_accepts_only_inert_legacy_overlay_files(self):
         expected, _ = package.build(self.root)
         original = package.archive_files(expected)
-        for name in ("skills/instructions/references/core-model.md", ".app.json"):
+        retained = {**original,
+                    ".app.json": b'{"apps":{"github":{"id":"old"}}}',
+                    "skills/instructions/lookup/knowledge-index.json": b'{"files":[]}'}
+        published = self.root / "dist/published.zip"
+        with zipfile.ZipFile(published, "w") as archive:
+            for path, data in retained.items():
+                archive.writestr(path, data)
+        package.verify(expected, published)
+        for name, data in [
+            ("skills/instructions/references/core-model.md", b"tampered"),
+            ("unexpected-other-file.txt", b"unrecognized"),
+        ]:
             with self.subTest(name=name):
-                files = {**original, name: b"changed or retained"}
-                published = self.root / "dist/tampered.zip"
+                changed = {**retained, name: data}
                 with zipfile.ZipFile(published, "w") as archive:
-                    for path, data in files.items():
-                        archive.writestr(path, data)
+                    for path, content in changed.items():
+                        archive.writestr(path, content)
                 with self.assertRaisesRegex(ValueError, "differs|Inventory mismatch"):
                     package.verify(expected, published)
 
     def test_publication_plan_rejects_an_archive_changed_after_build(self):
-        expected, _ = package.build(self.root)
+        self.git("tag", "v0.12.0")
+        expected, _ = package.build(self.root, release=True)
         files = package.archive_files(expected)
         files["skills/instructions/references/core-model.md"] += b"tampered\n"
         changed = self.root / "dist/changed.zip"

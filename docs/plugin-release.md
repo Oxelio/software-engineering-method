@@ -42,15 +42,20 @@ The migration:
   operational ownership, permission boundaries, and current review semantics;
 - replaces duplicated runtime rules with focused reference resolution;
 - corrects the subtitle and removes project-branded examples;
-- removes the plugin's optional GitHub app binding and provider-specific runtime
+- removes references to the optional GitHub app and provider-specific runtime
   instructions; integrations are selected by each adopting project;
-- removes the obsolete GPT upload-name lookup index;
+- stops using the obsolete GPT upload-name lookup index;
 - preserves the existing icon, identity, and starter prompt values.
 
-The expected initial deletions are `.app.json` and
-`skills/instructions/lookup/knowledge-index.json`. The publication plan computes
-deletions from a fresh complete inventory rather than assuming these are the
-only obsolete files. Review any additional deletion before uploading.
+The Plugin Creator update API is **overlay-only**: it cannot delete files.
+The historical `.app.json` and `skills/instructions/lookup/knowledge-index.json`
+therefore remain physically present after the initial account update. They are
+inert: the new portable and compatibility manifests do not bind `.app.json`,
+and the new skill does not load the GPT lookup index. They are explicitly
+allowlisted as retained legacy files in `plugin/build.json`. No other unexpected
+file may remain in the account plugin. Do not claim these files were deleted;
+if the host later supports full replacement, remove them in a separate verified
+migration.
 
 The old `software-engineering-method-gpt` repository stays archived. Its
 OpenAPI action contract belongs to the historical Custom GPT and is not a new
@@ -61,12 +66,16 @@ MCP server or plugin dependency.
 1. Update method or runtime sources through a pull request. Bump
    `plugin/plugin.json` to a higher stable `major.minor.patch` version whenever
    releasing changed content. A build metadata suffix is not a release bump.
-2. Run `check`, the unit tests, and a preview build. Review the method changes
-   separately from packaging and operational changes.
+2. Run `check`, the unit tests, and a review build. Review the method changes
+   separately from packaging and operational changes. PR and manually dispatched
+   CI builds produce `-review.zip` and are **never publishable**, even when clean.
+   Dirty local previews produce `-preview.zip` and are likewise non-publishable.
 3. After the source is reviewed and merged, check out the exact merged commit
    with a clean worktree and create tag `v<plugin-version>` under the repository's
-   normal authorization. CI checks the tag/version correspondence and builds
-   the package without publishing it.
+   normal authorization. CI checks the tag/version correspondence and runs
+   `build --release` only for tag events. This requires that the local version
+   tag points to HEAD and produces an explicitly marked publishable build.
+   CI builds the package without publishing it.
 4. Keep the exact ZIP and JSON checksum receipt, preferably as assets of a
    GitHub release associated with that tag. Verify that the receipt's
    `source_commit` is the intended reviewed revision and `dirty` is false.
@@ -93,10 +102,11 @@ Use the existing Plugin Creator integration in an authorized chat:
    ```
 
 4. Review its identity, source commit, checksum, version, `expected_release_id`,
-   and explicit `delete_paths`. The tool overlays uploaded files; omission alone
-   does not delete the old app binding, lookup index, or other stale files.
-5. Call `update_plugin` with the reviewed archive, exact plugin ID, fresh
-   `expected_release_id`, and reviewed deletion list. Keep sharing unchanged.
+   and `retained_legacy_files`. Only the two known inert historical paths are
+   allowed. The plan fails on other unexpected old files.
+5. Call `update_plugin` with the reviewed archive, exact plugin ID and fresh
+   `expected_release_id`. The API **does not accept a deletion list**; the
+   two historical files will remain on the account. Keep sharing unchanged.
    If the release guard conflicts, fetch and reconcile current source; do not
    replace the guard on an outdated candidate and retry blindly.
 
@@ -118,9 +128,11 @@ After a successful update:
    python scripts/package_plugin.py verify dist/software-engineering-method-0.12.0.zip dist/published.tar.gz
    ```
 
-   Verification rejects missing, additional, or changed files. Method text,
-   assets, and provenance must be byte-identical; manifest JSON may be serialized
-   differently only when its parsed content remains identical.
+   Verification rejects missing, changed, or unexpected additional files,
+   allowing only the explicitly declared, inert historical overlay paths.
+   Method text, assets, and provenance must be byte-identical; manifest JSON
+   may be serialized differently only when its parsed content remains identical.
+   Reconfirm that neither manifest declares an app binding.
 4. Record plugin ID, published release ID, version, source commit, tag, archive
    checksum, verification result, and any host smoke-test limits in the GitHub
    release notes or a reviewed release receipt. That receipt refers back to the

@@ -8,6 +8,8 @@ historical evidence; do not update it as a second active source.
 
 - Root method documents remain canonical at their existing paths, preserving
   adoption links. The complete packaged inventory is in `plugin/build.json`.
+  The build also rejects any new root Markdown file until it is explicitly
+  classified as normative or non-method documentation.
 - `plugin/plugin.json` owns package identity, version, and presentation.
 - `plugin/skills/instructions/` owns the runtime entry point and agent metadata.
 - `plugin/assets/` contains the existing icon, preserved from the current plugin.
@@ -34,11 +36,13 @@ python -m unittest discover -s tests -v
 python scripts/package_plugin.py build --allow-dirty
 ```
 
-The preview flag is for local work only. A preview records a dirty source and
-cannot produce a publication plan. Release builds require a clean checkout:
+The preview flag is for local work only. Regular clean builds create
+non-publishable `-review.zip` archives; dirty previews use `-preview.zip`.
+To build a publishable release, use a clean checkout at a reviewed source
+commit with its matching `v<version>` tag:
 
 ```sh
-python scripts/package_plugin.py build
+python scripts/package_plugin.py build --release
 ```
 
 CI runs validation and tests on Linux and Windows, requires identical package

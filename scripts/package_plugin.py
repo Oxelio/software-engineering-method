@@ -60,6 +60,16 @@ def check_links(files):
             require(resolved in files, f"Broken link: {name}: {target}")
 
 
+def retained_legacy_files(config):
+    names = config.get("retained_legacy_files", [])
+    require(isinstance(names, list) and len(names) == len(set(names)),
+            "Legacy retained-file allowlist must be unique")
+    for name in names:
+        require(isinstance(name, str) and str(safe_path(name)) == name,
+                f"Invalid retained legacy path: {name}")
+    return set(names)
+
+
 def source_files(root=ROOT):
     source = root / "plugin"
     config = json.loads((source / "build.json").read_text(encoding="utf-8"))
@@ -121,6 +131,20 @@ def source_files(root=ROOT):
         require(not (root / name).is_symlink(), f"Symlink in method: {name}")
         files[REFERENCE_ROOT + name] = (root / name).read_bytes()
     require("README.md" in methods and "core-model.md" in methods, "Missing method entry points")
+    excluded = config.get("non_method_root_files", [])
+    require(isinstance(excluded, list) and len(excluded) == len(set(excluded)),
+            "Non-method document inventory must be unique")
+    for name in excluded:
+        require(isinstance(name, str) and str(safe_path(name)) == name
+                and "/" not in name and name.endswith(".md"),
+                f"Invalid non-method document: {name}")
+    require(not set(methods) & set(excluded), "Document cannot be method and non-method")
+    root_markdown = {path.name for path in root.glob("*.md") if path.is_file()}
+    require(root_markdown == set(methods) | set(excluded),
+            f"Unclassified root Markdown: {sorted(root_markdown - set(methods) - set(excluded))}; "
+            f"missing root Markdown: {sorted((set(methods) | set(excluded)) - root_markdown)}")
+    require(not retained_legacy_files(config) & set(files),
+            "Retained legacy file cannot be part of generated package")
 
     # Generate the compatibility overlay from the same manifest; never edit two
     # independent copies of version, identity, presentation, or app declarations.
@@ -136,15 +160,26 @@ def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
 
 
-def build(root=ROOT, output=None, allow_dirty=False):
+def build(root=ROOT, output=None, allow_dirty=False, release=False):
     config, manifest, files = source_files(root)
     commit = git(root, "rev-parse", "HEAD")
     dirty = bool(git(root, "status", "--porcelain", "--untracked-files=normal"))
-    require(allow_dirty or not dirty, "Release builds require a clean checkout; use --allow-dirty for preview")
+    require(allow_dirty or not dirty, "Builds require a clean checkout; use --allow-dirty for preview")
+    release_tag = None
+    if release:
+        require(not allow_dirty and not dirty, "Release builds cannot be dirty previews")
+        release_tag = f"v{manifest['version']}"
+        try:
+            tagged_commit = git(root, "rev-parse", "--verify", f"refs/tags/{release_tag}^{{commit}}")
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f"Release builds require the local {release_tag} tag") from error
+        require(tagged_commit == commit, f"Release tag {release_tag} must point to HEAD")
     provenance = {
         "schema_version": 1, "plugin_id": config["plugin_id"],
         "repository": config["repository"], "source_commit": commit,
         "dirty": dirty, "version": manifest["version"],
+        "build_kind": "release" if release else "review", "release_tag": release_tag,
+        "retained_legacy_files": sorted(retained_legacy_files(config)),
         "method_sources": {REFERENCE_ROOT + name: name for name in config["method_files"]},
         "files": {name: sha256(data) for name, data in sorted(files.items())},
     }
@@ -155,7 +190,7 @@ def build(root=ROOT, output=None, allow_dirty=False):
     require(output != root.resolve() and not output.is_relative_to((root / "plugin").resolve()),
             "Build output must be outside source directories")
     output.mkdir(parents=True, exist_ok=True)
-    suffix = "-preview" if dirty else ""
+    suffix = "-preview" if dirty else ("" if release else "-review")
     archive = output / f"software-engineering-method-{manifest['version']}{suffix}.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as target:
         for name, data in sorted(files.items()):
@@ -166,6 +201,7 @@ def build(root=ROOT, output=None, allow_dirty=False):
     receipt = {
         "plugin_id": config["plugin_id"], "version": manifest["version"],
         "source_commit": commit, "dirty": dirty,
+        "build_kind": "release" if release else "review", "release_tag": release_tag,
         "archive": archive.name, "archive_sha256": sha256(archive.read_bytes()),
     }
     archive.with_suffix(".json").write_bytes(json_bytes(receipt))
@@ -206,7 +242,16 @@ def verify(expected_path, published_path):
     expected, published = archive_files(expected_path), archive_files(published_path)
     checked_provenance(expected)
     missing, extra = set(expected) - set(published), set(published) - set(expected)
-    require(not missing and not extra, f"Inventory mismatch: missing={sorted(missing)}, extra={sorted(extra)}")
+    allowed = set(json.loads(expected["provenance.json"])["retained_legacy_files"])
+    unexpected = extra - allowed
+    require(not missing and not unexpected,
+            f"Inventory mismatch: missing={sorted(missing)}, unexpected={sorted(unexpected)}")
+    # Historical overlay files cannot be deleted by the account update API.
+    # They are inert only when the new manifests do not reference them.
+    require("apps" not in json.loads(published["plugin.json"]).get("extensions", {}).get("com.openai", {}),
+            "Published plugin still declares an app binding")
+    require("apps" not in json.loads(published[".codex-plugin/plugin.json"]),
+            "Published compatibility manifest still declares an app binding")
     for name in expected:
         # Hosts may serialize manifests differently. Method text, assets, and
         # provenance must remain byte-identical.
@@ -228,6 +273,17 @@ def checked_provenance(files):
         require(sha256(files[name]) == digest, f"Provenance checksum differs: {name}")
     manifest = json.loads(files["plugin.json"])
     require(provenance["version"] == manifest["version"], "Provenance version differs")
+    kind = provenance.get("build_kind")
+    require(kind in ("review", "release"), "Unknown build kind")
+    require(provenance.get("release_tag") == (
+        f"v{manifest['version']}" if kind == "release" else None
+    ), "Release tag does not match build kind and version")
+    retained = provenance.get("retained_legacy_files")
+    require(isinstance(retained, list) and len(retained) == len(set(retained)),
+            "Invalid retained legacy provenance")
+    for name in retained:
+        require(isinstance(name, str) and str(safe_path(name)) == name,
+                "Invalid retained legacy path in provenance")
     return provenance
 
 
@@ -235,6 +291,8 @@ def publication_plan(archive_path, snapshot):
     files = archive_files(archive_path)
     provenance = checked_provenance(files)
     require(provenance["dirty"] is False, "Preview builds cannot be published")
+    require(provenance["build_kind"] == "release",
+            "Only tagged release builds can be published; review builds are not publishable")
     require("next_offset" in snapshot and snapshot["next_offset"] is None,
             "Use a complete current plugin inventory")
     plugin = snapshot["plugin"]
@@ -248,6 +306,9 @@ def publication_plan(archive_path, snapshot):
     require(len(previous) == len(set(previous)), "Duplicate current inventory entries")
     for name in previous:
         safe_path(name)
+    retained = sorted(set(previous) - set(files))
+    unexpected = set(retained) - set(provenance["retained_legacy_files"])
+    require(not unexpected, f"Unexpected existing plugin files: {sorted(unexpected)}")
     return {
         "plugin_id": provenance["plugin_id"],
         "expected_release_id": plugin["current_release_id"],
@@ -255,7 +316,8 @@ def publication_plan(archive_path, snapshot):
         "archive_sha256": sha256(Path(archive_path).read_bytes()),
         "source_commit": provenance["source_commit"],
         "version": provenance["version"],
-        "delete_paths": sorted(set(previous) - set(files)),
+        "retained_legacy_files": retained,
+        "note": "Plugin Creator overlays files; listed legacy files remain unreferenced, not deleted",
     }
 
 
@@ -266,6 +328,8 @@ def main():
     package = sub.add_parser("build")
     package.add_argument("--output", type=Path)
     package.add_argument("--allow-dirty", action="store_true")
+    package.add_argument("--release", action="store_true",
+                         help="Build publishable content only from the matching local version tag")
     compare = sub.add_parser("verify")
     compare.add_argument("expected", type=Path)
     compare.add_argument("published", type=Path)
@@ -278,7 +342,7 @@ def main():
             _, _, files = source_files()
             print(f"Validated {len(files)} package files and their local Markdown links")
         elif args.command == "build":
-            _, receipt = build(output=args.output, allow_dirty=args.allow_dirty)
+            _, receipt = build(output=args.output, allow_dirty=args.allow_dirty, release=args.release)
             print(json.dumps(receipt, indent=2))
         elif args.command == "verify":
             verify(args.expected, args.published)
