@@ -174,6 +174,17 @@ def build(root=ROOT, output=None, allow_dirty=False, release=False):
         except subprocess.CalledProcessError as error:
             raise ValueError(f"Release builds require the local {release_tag} tag") from error
         require(tagged_commit == commit, f"Release tag {release_tag} must point to HEAD")
+        remote_main = "refs/remotes/origin/main"
+        available = subprocess.run(
+            ["git", "-C", str(root), "show-ref", "--verify", "--quiet", remote_main],
+            capture_output=True, text=True, check=False,
+        )
+        require(available.returncode == 0, "Release builds require a fetched origin/main ref")
+        ancestor = subprocess.run(
+            ["git", "-C", str(root), "merge-base", "--is-ancestor", commit, remote_main],
+            capture_output=True, text=True, check=False,
+        )
+        require(ancestor.returncode == 0, "Release commit must be reachable from origin/main")
     provenance = {
         "schema_version": 1, "plugin_id": config["plugin_id"],
         "repository": config["repository"], "source_commit": commit,
