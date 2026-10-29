@@ -21,7 +21,8 @@ class PackageTests(unittest.TestCase):
         self.root = Path(self.temporary.name) / "repository"
         self.root.mkdir()
         config = json.loads((package.ROOT / "plugin/build.json").read_text(encoding="utf-8"))
-        for name in [*config["method_files"], ".gitignore", ".gitattributes"]:
+        for name in [*config["method_files"], *config["non_method_root_files"],
+                     ".gitignore", ".gitattributes"]:
             shutil.copyfile(package.ROOT / name, self.root / name)
         shutil.copytree(package.ROOT / "plugin", self.root / "plugin")
         self.git("init", "-q")
